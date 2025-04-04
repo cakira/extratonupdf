@@ -12,12 +12,15 @@ import zlib
 import pymupdf
 
 _GET_YEAR_PATTERN = r'vencimento.*(\d{4})$'
+
+# Regex to extract transaction entries with the following capture groups:
+# 1: day (dd)
+# 2: month (three-letter Portuguese abbreviation)
+# 3: transaction title
+# 4: negative value indicator (present if value is negative). It's non-ASCII.
+# 5: value amount (as formatted string with thousand separators)
 _GET_ENTRY_PATTERN = r'^(\d\d) ([A-Z]{3})\n(.*)\n(.?)R\$ ([0-9.]+,\d\d)$'
-# group 1 -> day
-# group 2 -> month, in 3 characters Portuguese
-# group 3 -> title
-# group 4 -> if present, value is negative
-# group 5 -> value (check group 4 for its signal)
+
 _MONTHS = {
     'JAN': 1,
     'FEV': 2,
@@ -52,15 +55,17 @@ def pdf_to_table(filename) -> list[tuple]:
 
 
 def _get_text_from_pdf(pymupdf_document) -> str:
-    text: str = ''
+    text_parts: list[str] = []
     for page in pymupdf_document:
-        text = text + page.get_text()
-    return text
+        text_parts.append(page.get_text())
+    return ''.join(text_parts)
 
 
 def _discover_year(extrato_text: str) -> int:
     match = re.search(_GET_YEAR_PATTERN, extrato_text,
                       re.UNICODE | re.MULTILINE)
+    if not match:
+        raise ValueError("Year not found in document")
     return int(match[1])
 
 
@@ -71,6 +76,7 @@ def _get_entries(extrato_text: str, year: int) -> list[tuple]:
     for entry in entries:
         day = int(entry[0])
         month = _MONTHS[entry[1]]
+        # Transition for December entries belong to previous year
         entry_year = year if (month != 12) else (year - 1)
         date = datetime.date(entry_year, month, day)
         title = entry[2]
